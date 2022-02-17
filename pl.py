@@ -5,7 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
-from sklearn.preprocessing import normalize
+from sklearn.preprocessing import normalize, minmax_scale
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 
@@ -15,7 +15,7 @@ from scipy.stats import spearmanr,pearsonr, wilcoxon, zscore, ttest_ind
 
 import os
 import re
-from itertools import chain
+
 
 paths = pd.read_csv('Z:/All-Rats/Billel/session_indexing.csv',sep = ';')['Path']
 
@@ -366,7 +366,7 @@ def interval_pop_FR(path, region='Hpc', celltype='Pyr', min=0, max=2040, bin=1, 
     inputs:
     min, max, bin is in seconds
     if whole is True, the interval will be from 0 to the end of recording. It overwrites the min and max specified.
-    --> pop_fr is the population firing rate for interval selectd in bins of chosen length, e is the bin edges
+    --> pop_fr is the population firing rate for interval selected in bins of chosen length, e is the bin edges
     """
     
     bk.load.current_session(path)
@@ -451,3 +451,177 @@ def pop_FR_ES(paths=paths, region='Hpc', celltype='Pyr', bin=1, min_dur=30, pre_
     all_ES=all_ES_pre+all_ES_post
     
     return all_ES
+
+
+def pop_FR_ES_state(paths=paths, region='Hpc', celltype='Pyr', state='nrem', bin=1, min_dur=30, pre_post=False):
+    """
+    bin is in seconds
+    min_dur is in mins
+    pre_post: select True if you want the pre and post RUN Es to be separated
+    -> array with average population firing rate for specified celltype and brainregion for each epoch of the specified state in all ESs. Mean FR is computed in bins of specified time length
+    """
+
+    # removing paths without any ES both for pre and post RUN
+    not_use_pre=[]
+    for i in range(len(paths)):
+        try:
+            ES=removing_short_sessions(paths[i], pre_RUN=True, min_dur=min_dur)
+            if ES[0]==0:
+                not_use_pre.append(paths[i])  
+        except:
+            not_use_pre.append(paths[i])  
+    useful_paths_pre=[ele for ele in paths if ele not in not_use_pre]
+
+    not_use_post=[]
+    for i in range(len(paths)):
+        try:
+            ES=removing_short_sessions(paths[i], pre_RUN=False, min_dur=min_dur)
+            if ES[0]==0:
+                not_use_post.append(paths[i]) 
+        except:
+            not_use_post.append(paths[i])  
+    useful_paths_post=[ele for ele in paths if ele not in not_use_post]
+
+    all_ES_pre=[]
+    all_ES_post=[]
+    
+    for i in range(len(useful_paths_pre)): # going over all sessions
+        ES_pre=removing_short_sessions(useful_paths_pre[i], pre_RUN=True, min_dur=30, path_list=False)  
+        for n in range(len(ES_pre)): #going over all ES in useful sessions  
+            ES_means=[]
+            for r in range(len(ES_pre[n][0][ES_pre[n][0]['state']==state])): #going over all interesting epochs in each ES 
+                start=ES_pre[n][0]['start'].iloc[r]/1e6
+                stop=ES_pre[n][0]['stop'].iloc[r]/1e6
+                c, _=interval_pop_FR(useful_paths_pre[i],region, celltype, min=start, max=stop,bin=bin, whole=False)
+                c=np.nanmean(c)
+                ES_means.append(c)
+            all_ES_pre.append(ES_means)
+    
+    for i in range(len(useful_paths_post)):
+        ES_post=removing_short_sessions(useful_paths_post[i], pre_RUN=False, min_dur=30, path_list=False)
+        for n in range(len(ES_post)):
+            ES_means=[]
+            for r in range(len(ES_post[n][0][ES_post[n][0]['state']==state])):
+                start=ES_post[n][0]['start'].iloc[r]/1e6
+                stop=ES_post[n][0]['stop'].iloc[r]/1e6
+                c, _=interval_pop_FR(useful_paths_post[i],region, celltype, min=start, max=stop,bin=bin, whole=False)
+                c=np.nanmean(c)
+                ES_means.append(c)
+            all_ES_post.append(ES_means)
+
+    if pre_post:
+        return all_ES_pre, all_ES_post
+
+    all_ES=all_ES_pre+all_ES_post
+    
+    return all_ES
+
+
+def pop_FR_ES_norm(paths=paths, region='Hpc', celltype='Pyr', bin=1, min_dur=30, pre_post=False):
+    """
+    bin is in seconds
+    min_dur is in mins
+    pre_post: select True if you want the pre and post RUN Es to be separated
+    -> array with NORMALIZED (values from 0 to 1) population firing rate for specified celltype and brainregion for each ES aranged in bins of specified time length
+    """
+
+    # removing paths without any ES both for pre and post RUN
+    not_use_pre=[]
+    for i in range(len(paths)):
+        try:
+            ES=removing_short_sessions(paths[i], pre_RUN=True, min_dur=min_dur)
+            if ES[0]==0:
+                not_use_pre.append(paths[i])  
+        except:
+            not_use_pre.append(paths[i])  
+    useful_paths_pre=[ele for ele in paths if ele not in not_use_pre]
+
+    not_use_post=[]
+    for i in range(len(paths)):
+        try:
+            ES=removing_short_sessions(paths[i], pre_RUN=False, min_dur=min_dur)
+            if ES[0]==0:
+                not_use_post.append(paths[i]) 
+        except:
+            not_use_post.append(paths[i])  
+    useful_paths_post=[ele for ele in paths if ele not in not_use_post]
+
+    all_ES_pre=[]
+    all_ES_post=[]
+    
+    for i in range(len(useful_paths_pre)): # going over all sessions
+        ES_pre=removing_short_sessions(useful_paths_pre[i], pre_RUN=True, min_dur=30, path_list=False)  #going over all ES in useful sessions
+        for n in range(len(ES_pre)):
+            start=ES_pre[n][0]['start'].iloc[0]/1e6
+            stop=ES_pre[n][0]['stop'].iloc[-1]/1e6
+            c, _=interval_pop_FR(useful_paths_pre[i],region, celltype, min=start, max=stop,bin=bin, whole=False)
+            c=np.array(c)
+            nan_mask = np.isnan(c)
+            valid = ~nan_mask
+            c=c[valid]
+            
+            if len(c)>0:
+                c=c.reshape((1,-1))
+                c=minmax_scale(c)
+                all_ES_pre.append(c)
+
+    for i in range(len(useful_paths_post)):
+        ES_post=removing_short_sessions(useful_paths_post[i], pre_RUN=False, min_dur=30, path_list=False)
+        for n in range(len(ES_post)):
+            start=ES_post[n][0]['start'].iloc[0]/1e6
+            stop=ES_post[n][0]['stop'].iloc[-1]/1e6
+            c, _=interval_pop_FR(useful_paths_post[i],region, celltype, min=start, max=stop, bin=bin, whole=False)
+            c=np.array(c)
+            nan_mask = np.isnan(c)
+            valid = ~nan_mask
+            c=c[valid]
+            
+            if len(c)>0:
+                c=c.reshape((1,-1))
+                c=minmax_scale(c)
+                all_ES_post.append(c)
+    
+    if pre_post:
+        return all_ES_pre, all_ES_post
+
+    all_ES=all_ES_pre+all_ES_post
+    
+    return all_ES
+
+def regression_graph(paths=paths, region='Hpc', celltype='Pyr', state='nrem', bin=1, min_dur=30, pre_post=False):
+    """
+    -> generates graph including average firing rate for each successive REM or NREM period in each ES and the associated regression line 
+    -> returns array with slope, intercept, r, p, and se for each ES
+    """
+    data=pop_FR_ES_state(paths, region, celltype, state, bin, min_dur, pre_post)
+    
+    stats=[]
+    plt.figure()
+    for i in range(len(data)):
+        fr_t=list(zip(data[i], np.arange(len(data[i])))) # zipping together x (time) and y (pop firing rate) values
+
+        a=np.array(fr_t)
+
+        # removing nan values
+        if len(a)>0:
+            filt = np.isfinite(a[:,0])
+            y = a[filt,0]
+            x = a[filt,1]
+
+            if len(x)>0:
+
+                # linear regression
+                slope, intercept, r, p, se=linregress(x,y)
+                stats.append((slope, intercept, r, p, se))
+
+
+                # visualizing the linear regression fitted line
+                plt.scatter(x,y)
+                plt.plot(x, intercept + slope*x, 'b', label='fitted line')
+                plt.title(region+"-"+celltype+' FR in successive '+state+' epochs')
+                plt.ylabel('Firing Rate (spk/sec)')
+                plt.xlabel('Epoch Number')
+
+    stats=np.array(stats)
+    print(np.nanmean(stats[:,2]))
+    return stats
