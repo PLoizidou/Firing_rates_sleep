@@ -69,8 +69,8 @@ def parsing_sleep(path, pre_RUN=True):
     else:
         l=post_run_period
        
-    p=l[(((l['stop']-l['start'])/1e6)>30) & (l['state']=='wake')]
-    k=[-1]+p.index.values.tolist()+[-1]    # list containing indexes of epochs of wake>30 s
+    p=l[(((l['stop']-l['start'])/1e6)>60) & (l['state']=='wake')]
+    k=[-1]+p.index.values.tolist()+[-1]    # list containing indexes of epochs of wake>60 s
     
     sleeps = [l.iloc[k[n]+1:k[n+1]] for n in range(len(k)-1)]
     sleeps=[[i] for i in sleeps if len(i)>0] #dropping empty periods
@@ -562,7 +562,7 @@ def pop_FR_ES_norm(paths=paths, region='Hpc', celltype='Pyr', bin=1, min_dur=30,
             
             if len(c)>0:
                 c=c.reshape((1,-1))
-                c=normalize(c)
+                c=minmax_scale(c)
                 all_ES_pre.append(c)
 
     for i in range(len(useful_paths_post)):
@@ -578,7 +578,7 @@ def pop_FR_ES_norm(paths=paths, region='Hpc', celltype='Pyr', bin=1, min_dur=30,
             
             if len(c)>0:
                 c=c.reshape((1,-1))
-                c=normalize(c)
+                c=minmax_scale(c)
                 all_ES_post.append(c)
     
     if pre_post:
@@ -625,3 +625,67 @@ def regression_graph(paths=paths, region='Hpc', celltype='Pyr', state='nrem', bi
     stats=np.array(stats)
     print(np.nanmean(stats[:,2]))
     return stats
+
+# regression line within each ES keeping only NREM
+
+def pop_FR_ES_state_bin(paths=paths, region='Hpc', celltype='Pyr', state='nrem', bin=1, min_dur=30, pre_post=False):
+    """
+    bin is in seconds
+    min_dur is in mins
+    pre_post: select True if you want the pre and post RUN Es to be separated
+    Unlike pop_FR_ES_state, it gives avg FR rate per minute (i.e. multiple values for each REM epoch instead of just one.)
+    -> array with average population firing rate/time bin for specified celltype and brainregion for each epoch of the specified state in all ESs. Mean FR is computed in bins of specified time length
+    """
+
+    # removing paths without any ES both for pre and post RUN
+    not_use_pre=[]
+    for i in range(len(paths)):
+        try:
+            ES=removing_short_sessions(paths[i], pre_RUN=True, min_dur=min_dur)
+            if ES[0]==0:
+                not_use_pre.append(paths[i])  
+        except:
+            not_use_pre.append(paths[i])  
+    useful_paths_pre=[ele for ele in paths if ele not in not_use_pre]
+
+    not_use_post=[]
+    for i in range(len(paths)):
+        try:
+            ES=removing_short_sessions(paths[i], pre_RUN=False, min_dur=min_dur)
+            if ES[0]==0:
+                not_use_post.append(paths[i]) 
+        except:
+            not_use_post.append(paths[i])  
+    useful_paths_post=[ele for ele in paths if ele not in not_use_post]
+
+    all_ES_pre=[]
+    all_ES_post=[]
+    
+    for i in range(len(useful_paths_pre)): # going over all sessions
+        ES_pre=removing_short_sessions(useful_paths_pre[i], pre_RUN=True, min_dur=30, path_list=False)  
+        for n in range(len(ES_pre)): #going over all ES in useful sessions  
+            ES_means=[]
+            for r in range(len(ES_pre[n][0][ES_pre[n][0]['state']==state])): #going over all interesting epochs in each ES 
+                start=ES_pre[n][0]['start'].iloc[r]/1e6
+                stop=ES_pre[n][0]['stop'].iloc[r]/1e6
+                c, _=interval_pop_FR(useful_paths_pre[i],region, celltype, min=start, max=stop,bin=bin, whole=False)
+                ES_means.append(c)
+            all_ES_pre.append(ES_means)
+    
+    for i in range(len(useful_paths_post)):
+        ES_post=removing_short_sessions(useful_paths_post[i], pre_RUN=False, min_dur=30, path_list=False)
+        for n in range(len(ES_post)):
+            ES_means=[]
+            for r in range(len(ES_post[n][0][ES_post[n][0]['state']==state])):
+                start=ES_post[n][0]['start'].iloc[r]/1e6
+                stop=ES_post[n][0]['stop'].iloc[r]/1e6
+                c, _=interval_pop_FR(useful_paths_post[i],region, celltype, min=start, max=stop,bin=bin, whole=False)
+                ES_means.append(c)
+            all_ES_post.append(ES_means)
+
+    if pre_post:
+        return all_ES_pre, all_ES_post
+
+    all_ES=all_ES_pre+all_ES_post
+    
+    return all_ES
