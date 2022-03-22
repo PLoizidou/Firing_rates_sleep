@@ -65,12 +65,20 @@ def parsing_sleep(path, pre_RUN=True):
     
     # chosing which period to parse
     if pre_RUN:
-        l=pre_run_period
+        l=pre_run_period       
     else:
         l=post_run_period
-       
+    
+    # identifying wake > 60 s 
     p=l[(((l['stop']-l['start'])/1e6)>60) & (l['state']=='wake')]
-    k=[-1]+p.index.values.tolist()+[-1]    # list containing indexes of epochs of wake>60 s
+    o=p.index.values.tolist()
+    for i in range(len(l)-1):
+        if l["start"][i+1]-l['stop'][i] >1000000:
+            o.append(i)
+    o.sort()
+    k=[-1]+o+[-1]    # list containing indexes of epochs of wake>60 s
+
+    
     
     sleeps = [l.iloc[k[n]+1:k[n+1]] for n in range(len(k)-1)]
     sleeps=[[i] for i in sleeps if len(i)>0] #dropping empty periods
